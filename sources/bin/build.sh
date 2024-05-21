@@ -2,149 +2,218 @@
 # by xyzmean
 
 ## FUNCTIONS START
-# CLEAN TMP
-export a1=$(sed -n 2p make.prop)
-export a2=$(sed -n 8p make.prop)
-export a3=$(sed -n 4p make.prop)
-export a4=$(date +"%Y.%m.%d %H:%M")
-export a5=$(date)
-export a6=logb_"$a4"
-export a8=$(sed -n 12p make.prop)
-export a7=ota_"$a8"_"$a4"
-export a9=$(sed -n 10p make
-.prop)
-export a10=$(sed -n 14p make.prop)
-export a11=$(sed -n 18p make.prop)
-export a12=$(sed -n 16p make.prop)
-export a13="1"
 
-# Проверка make.prop на кол-во строк
-ch1=$(sed -n 19p make.prop)
+# Функция для проверки наличия необходимых инструментов
+function check_tools {
+  for tool in gcc make 7z; do
+    if ! command -v "$tool" > /dev/null; then
+      log "ERROR: $tool is not installed." "ERROR"
+      exit 1
+    fi
+  done
+}
+
+# Функция для очистки временных файлов
+function clean_tmp {
+  rm -rf out/build/"$device"/include/generated/compile.h
+  rm -f zImage
+  rm -f generated.info
+  rm -f author.prop
+  log "Temporary files removed." "INFO"
+}
+
+# Функция для чтения переменных из make.prop
+function read_make_prop {
+  # Чтение всех переменных за один проход sed
+  read -r usr bh arch stampt device cpu imgt loc gcc sha <<< $(sed -n '2p;8p;4p;10p;12p;14p;18p;16p;20p' make.prop)
+
+  # Форматирование даты и времени
+  stamp=$(date +"%Y.%m.%d %H:%M")
+
+  # Вычисление остальных переменных
+  logb="logb_$stamp"
+  otazip="ota_$device_$stamp"
+  archp=$(dpkg --print-architecture)
+  cpus=$(cat /proc/cpuinfo | grep processor | wc -l)
+  th=$(($cpus + 1))
+  kernel="$imgt"_"$stamp"
+
+  # Экспортируем переменные
+  export usr bh arch stamp stampt logb otazip device cpu imgt loc gcc sha archp cpus th kernel
+}
+
+# Функция для вывода информации о сборке
+function print_info {
+  log "
+  Device: $cy$device
+  Arch: $cy$arch
+  CPU: $cy$cpu
+  GCC: $cy$gcc
+  Image: $cy$imgt
+  Threads: $cy$th" "INFO"
+}
+
+# Функция для создания OTA пакета
+function make_ota {
+  local ota_type="\$1"
+  cd out/
+  case "$ota_type" in
+    "full")
+      7z a -tzip "$otazip".zip kernel/"$kernel"
+      log "Full OTA package created: $otazip.zip" "INFO"
+      ;;
+    "incremental")
+      # TODO: Реализовать создание incremental OTA пакета
+      log "Incremental OTA package creation is not yet implemented." "WARNING"
+      ;;
+    *)
+      log "Invalid OTA type: $ota_type" "ERROR"
+      exit 1
+      ;;
+  esac
+  cd ../
+}
+
+# Функция для логирования
+function log {
+  local message="\$1"
+  local level="\$2"
+  local timestamp=$(date +"%Y-%m-%d %H:%M:%S")
+  echo -e "$timestamp [$level] $message" >> build.log
+}
+
+## FUNCTIONS END
+
+# Проверка наличия make.prop
+if [ ! -f "make.prop" ]; then
+  log "FATAL: make.prop not found!" "ERROR"
+  exit 1
+fi
+
+# Проверка make.prop на количество строк
+ch1=$(sed -n 21p make.prop)
 if [ "$ch1" != "" ]; then
-  echo "FATAL! Bad make.prop"
-  exit
-else
-  function cleantmp() {
-    rm -rf out/build/"$device"/include/generated/compile.h
-    rm -f zImage
-    rm -f generated.info
-    rm -f author.prop
-  }
+  log "FATAL: Bad make.prop" "ERROR"
+  exit 1
+fi
 
-  # Необходимо явно объявлять переменные с помощью local
-  function linkvar() {
-    local usr=$a1
-    local bh=$a2
-    local arch=$a3
-    local stamp=$a4
-    local stampt=$a5
-    local logb=$a6
-    local otazip=$a7
-    local device=$a8
-    local cpu=$a9
-    local imgt=$a10
-    local loc=$a11
-    local gcc=$a12
-    local sha=$a13
-    local archp=$(dpkg --print-architecture)
-    local cpus=$(cat /proc/cpuinfo | grep processor | wc -l)
-    local th=$(($cpus + 1))
-  }
+# Проверка наличия необходимых инструментов
+check_tools
 
-  # ...
+# Чтение переменных из make.prop
+read_make_prop
 
-  ## FUNCTIONS END
+# Версия скрипта
+ver=1.5-nightly
 
-  ver=1.5-nightly
-  clear
-  e="\x1b["
-  c=$e"39;49;00m"
-  y=$e"93;01m"
-  cy=$e"96;01m"
-  r=$e"1;91m"
-  g=$e"92;01m"
-  m=$e"95;01m"
-  echo -e "
-    $cy****************************************************
-    $cy*       Automatic kernel builder v"$ver"      *
-    $cy*                   by xyzmean                     *
-    $cy****************************************************
-    $y"
-  sleep 3
-# Прерываем выполнение при появлении ошибки
+# Очистка экрана
+clear
+
+# Цвета для вывода
+e="\x1b["
+c=$e"39;49;00m"
+y=$e"93;01m"
+cy=$e"96;01m"
+r=$e"1;91m"
+g=$e"92;01m"
+m=$e"95;01m"
+
+# Вывод заголовка
+log "
+  $cy****************************************************
+  $cy*       Automatic kernel builder v"$ver"      *
+  $cy*                   by xyzmean                     *
+  $cy****************************************************
+  $y" "INFO"
+sleep 3
+
+# Прерывание выполнения при появлении ошибки
 set -e
 
-# Создание переменных
-linkvar
-
-# Тип сборки (бесполезная хрень)
+# Тип сборки
 if [[ "$sha" != "1" ]]; then
   type="USER"
 else
   type="OFFICIAL"
 fi
 
-# Еще переменная
-kernel="$imgt"_"$stamp"
-
-# Экспортируем необходимые значения из make.prop
-exportmkval
-
-printinfo
+# Вывод информации о сборке
+print_info
 
 sleep 4
 
-# Экспортируем gcc из make.prop
-if [[ "$archp" = "amd64" ]]; then
-  export CROSS_COMPILE="$PWD"/gcc/bin/"$gcc"
-else 
-  echo "Your arch not amd64!"
+# Проверка архитектуры
+if [[ "$archp" != "amd64" ]]; then
+  log "ERROR: Your architecture is not supported. Only amd64 is supported." "ERROR"
+  exit 1
 fi
 
+# Экспорт переменной CROSS_COMPILE
+export CROSS_COMPILE="$PWD"/gcc/bin/"$gcc"
+
+# Переход в директорию sources
 cd sources/
 
-echo -e "$g Building the kernel...$y"
+# Вывод сообщения о начале сборки
+log "Building the kernel..." "INFO"
 
+# Запись времени начала сборки
 strt=$(date +"%s")
 
-# Сборка ядра :3
-make -j$th O=../out/build/"$device" "$imgt"
+# Обработка аргументов командной строки
+while [[ $# -gt 0 ]]; do
+  case "\$1" in
+    -o | --optimization)
+      optimization="\$2"
+      shift 2
+      ;;
+    -f | --features)
+      features="\$2"
+      shift 2
+      ;;
+    -t | --ota-type)
+      ota_type="\$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown option: \$1"
+      exit 1
+      ;;
+  esac
+done
 
+# Сборка ядра с учетом параметров
+make -j"$th" O=../out/build/"$device" "$imgt" \
+  "OPTIMIZATION=$optimization" \
+  "FEATURES=$features" \
+  2>&1 | tee build.log
+
+# Очистка экрана
 clear
 
-# Тайтл завершения сборки
-echo -e "
+# Вывод заголовка завершения сборки
+log "
 $cy****************************************************
 $cy*           Automatic kernel builder v"$ver"          *
 $cy*                   by xyzmean                    *
 $cy****************************************************
-$y"
-echo -e "$g Build completed!
-  Moving the kernel to out/kernel... $y"
+$y" "INFO"
+log "Build completed!" "INFO"
 sleep 3
 
 # Перенос ядра в папку out/kernel
 cat ../out/build/"$device"/arch/"$arch"/boot/"$imgt" >../out/kernel/"$kernel"
 rm -rf ../out/build/"$device"/arch/"$arch"/boot/
 cd ../
-mkota
 
-echo -e "$g Removing temporary files...$y"
+# Создание OTA пакета
+make_ota "$ota_type"
 
-# Очистка временных файлов
-sleep 1
-cleantmp
+# Вывод сообщения об очистке временных файлов
+log "Cleaning up temporary files..." "INFO"
+clean_tmp
 
-# Вывод имени созданного пакета
-echo -e "$g Done! OTA package name: "$otazip".zip$y"
-
-# Генерация и вывод времени сборки
-end=$(date +"%s")
-diff=$(($end - $strt))
-echo Operation completed successfully!
-sleep 2
-echo -e "$m Compilation took $diff seconds!"
-
-fi
-
-####### script v12 (beta)
+# Вывод сообщения о завершении сборки
+fnsh=$(date +"%s")
+tm=$((fnsh - strt))
+log "Build completed in $tm seconds." "INFO"
